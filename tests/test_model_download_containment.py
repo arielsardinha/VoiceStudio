@@ -33,44 +33,51 @@ def download():
 
 
 def _drive_segmented(
-    download, monkeypatch, tmp_path, files, *, etag=GOOD_ETAG, endpoint=None,
-    resolved=None, default_endpoint="https://huggingface.co",
+    download,
+    monkeypatch,
+    tmp_path,
+    files,
+    *,
+    etag=GOOD_ETAG,
+    endpoint=None,
+    resolved=None,
+    default_endpoint="https://huggingface.co",
 ):
     import huggingface_hub
-    from huggingface_hub import file_download as hf_file_download
-    from services import segmented_download as sd_mod
-    from services import token_resolver
+    from huggingface_hub import constants, file_download
+    from services import segmented_download, token_resolver
 
     cache = tmp_path / "hub"
     cache.mkdir()
-    monkeypatch.setattr(token_resolver, "resolve", lambda *a, **k: resolved)
-    monkeypatch.setattr(huggingface_hub.constants, "HF_HUB_CACHE", str(cache))
-    monkeypatch.setattr(huggingface_hub.constants, "ENDPOINT", default_endpoint)
-    seen: dict = {}
+    seen = {}
+    monkeypatch.setattr(token_resolver, "resolve", lambda: resolved)
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(cache))
+    monkeypatch.setattr(constants, "ENDPOINT", default_endpoint)
 
-    class _FakeApi:
-        def __init__(self, *, endpoint=None, token=None):
+    class FakeHubApi:
+        def __init__(self, *, endpoint, token):
             seen["hf_api"] = token
 
         def repo_info(self, repo_id, repo_type=None, revision=None):
             return SimpleNamespace(
-                sha=revision, siblings=[SimpleNamespace(rfilename=f) for f in files],
+                sha=revision,
+                siblings=[SimpleNamespace(rfilename=name) for name in files],
             )
 
-    def _fake_metadata(url, token=None, **_kw):
+    def metadata(url, token=None, **_kw):
         seen["file_metadata"] = token
         return SimpleNamespace(etag=f'"{etag}"', location=url, size=4)
 
-    async def _fake_segmented(url, blob_path, *, token=None, **_kw):
+    async def transfer(url, blob_path, *, token=None, **_kw):
         seen["segmented"] = token
         os.makedirs(os.path.dirname(blob_path), exist_ok=True)
-        with open(blob_path, "wb") as fh:
-            fh.write(b"data")
+        with open(blob_path, "wb") as handle:
+            handle.write(b"data")
         return blob_path
 
-    monkeypatch.setattr(huggingface_hub, "HfApi", _FakeApi)
-    monkeypatch.setattr(hf_file_download, "get_hf_file_metadata", _fake_metadata)
-    monkeypatch.setattr(sd_mod, "segmented_download", _fake_segmented)
+    monkeypatch.setattr(huggingface_hub, "HfApi", FakeHubApi)
+    monkeypatch.setattr(file_download, "get_hf_file_metadata", metadata)
+    monkeypatch.setattr(segmented_download, "segmented_download", transfer)
     result = download._segmented_snapshot(REPO, endpoint=endpoint, revision=REVISION)
     return cache, seen, result
 
@@ -462,6 +469,7 @@ def test_normal_persona_bundle_still_parses(tmp_path):
 @pytest.fixture
 def gguf(monkeypatch, tmp_path):
     from engines.omnivoice_gguf import backend as gguf_backend
+    from huggingface_hub import constants
 
     root = tmp_path / "repo"
     (root / "bin").mkdir(parents=True)
@@ -471,6 +479,25 @@ def gguf(monkeypatch, tmp_path):
     monkeypatch.setattr(gguf_backend, "_REPO_ROOT", root)
     monkeypatch.setattr(gguf_backend, "_binary_path", lambda slug=None: fake_bin)
     monkeypatch.setattr(gguf_backend, "_is_macos_quarantined", lambda p: False)
+    # Readiness covers the weights too, so the fixture installs the pinned
+    # pair in a throwaway cache: a test that expects "ready" has to supply
+    # the weights it claims to have. The manifest checks below still decide
+    # the outcome on their own.
+    quant_map = gguf_backend._load_quant_map()
+    revision = quant_map["_meta"]["source_commit_sha"]
+    entry = quant_map["cpu"]
+    cache = tmp_path / "hub"
+    folder = cache / "models--Serveurperso--OmniVoice-GGUF" / "snapshots" / revision
+    folder.mkdir(parents=True)
+    for name in (entry["base"], entry["tokenizer"]):
+        (folder / name).write_bytes(b"gguf-weights")
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(cache))
+    # A clean compute environment: an ambient CPU pin or native backend
+    # would change which quant the engine looks for.
+    for variable in ("OMNIVOICE_DEVICE", "OMNIVOICE_GGUF_BACKEND",
+                     "OMNIVOICE_GGUF_DEVICE", "GGML_BACKEND"):
+        monkeypatch.delenv(variable, raising=False)
+    monkeypatch.setenv("OMNIVOICE_DEVICE", "auto")
     return gguf_backend, root / "bin" / "checksums.sha256", fake_bin
 
 
