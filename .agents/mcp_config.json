@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "voicestudio": {
+      "command": "D:/VoiceStudio/.venv/Scripts/python.exe",
+      "args": ["-m", "backend.mcp_shim"],
+      "cwd": "D:/VoiceStudio",
+      "env": {
+        "OMNIVOICE_PORT": "3900",
+        "OMNIVOICE_CLIENT_ID": "antigravity-gemini",
+        "OMNIVOICE_MCP_OUTPUT_MODE": "files",
+        "OMNIVOICE_MCP_BASE_PATH": "D:/VoiceStudio/output"
+      }
+    }
+  }
+}

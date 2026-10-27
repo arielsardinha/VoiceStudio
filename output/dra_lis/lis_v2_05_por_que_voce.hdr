@@ -1,0 +1,14 @@
+HTTP/1.1 200 OK
+date: Tue, 27 Oct 2026 09:31:11 GMT
+server: uvicorn
+x-audio-id: f24ce0e1
+x-gen-time: 9.25
+x-audio-path: f24ce0e1.wav
+x-seed: 540501548
+x-audio-duration: 28.59
+content-length: 1372364
+x-omnivoice-routing: accelerated
+x-omnivoice-routing-reason: NVIDIA GeForce RTX 3050 has 6.0 GB VRAM; this engine wants about 6 GB. It will run, but expect slow generations that may time out. Unload other models before generating, keep the text short, or pick a lighter engine.
+content-type: audio/wav
+x-omnivoice-backend: 0.5.7
+
